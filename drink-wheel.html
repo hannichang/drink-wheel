@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>粉嫩可愛飲料轉盤（不跑版＋等機率）</title>
+<style>
+  body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    height: 100vh;
+    background: radial-gradient(circle at 20% 10%, #fff0f7, #fff7fb);
+    font-family: "PingFang TC", "Noto Sans TC", sans-serif;
+  }
+  .wrap {
+    position: relative;
+    width: min(90vw, 540px);
+    aspect-ratio: 1 / 1; /* ✅ 確保正方形比例 */
+  }
+  canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    border: 10px solid #fff;
+    outline: 3px solid #ff9ec7;
+    box-sizing: border-box;
+  }
+
+  /* 🔺指針朝內 */
+  .pointer {
+    position: absolute;
+    bottom: calc(100% - 10px);
+    left: 50%;
+    transform: translateX(-50%) rotate(180deg);
+    width: 0;
+    height: 0;
+    border-left: 16px solid transparent;
+    border-right: 16px solid transparent;
+    border-bottom: 24px solid #ff9ec7;
+    filter: drop-shadow(0 4px 6px rgba(0,0,0,.1))
+            drop-shadow(0 0 12px rgba(255,158,199,.55));
+  }
+  .pointer::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 18px;
+    width: 46px;
+    height: 46px;
+    transform: translateX(-50%);
+    background: radial-gradient(closest-side, rgba(255,158,199,.8), transparent 70%);
+    filter: blur(4px);
+    pointer-events: none;
+  }
+
+  .spin {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 3px solid #ff9ec7;
+    background: linear-gradient(180deg, #fff, #ffeef6);
+    box-shadow: 0 8px 0 #ff7fb5, 0 14px 24px rgba(255,132,182,.35);
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    font-weight: 800;
+    color: #7a4760;
+    font-size: 18px;
+    z-index: 2;
+  }
+
+  .popup {
+    position: fixed;
+    inset: 0;
+    display: none;
+    place-items: center;
+    background: rgba(0,0,0,.25);
+    backdrop-filter: blur(3px);
+    z-index: 99;
+  }
+  .popup.show { display: grid; }
+  .card {
+    background: #fff;
+    padding: 26px 34px;
+    border-radius: 20px;
+    border: 2px solid #ffe3f2;
+    text-align: center;
+    box-shadow: 0 8px 18px rgba(255,158,199,.4);
+    animation: pop .25s ease-out;
+  }
+  @keyframes pop { from { transform: scale(.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+  .card h3 {
+    color: #7a4760;
+    font-size: 22px;
+    margin: 0 0 10px;
+  }
+  .card p {
+    font-size: 20px;
+    font-weight: 800;
+    margin-bottom: 18px;
+  }
+  .btn {
+    background: #ff9ec7;
+    color: #fff;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 16px;
+    margin: 0 6px;
+    box-shadow: 0 6px 14px rgba(255,158,199,.4);
+  }
+  .btn:hover { background: #ff85b9; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <canvas id="wheel"></canvas>
+  <div class="pointer"></div>
+  <button class="spin" id="spinBtn">🧋 開轉！</button>
+</div>
+
+<div class="popup" id="popup">
+  <div class="card">
+    <h3>今天就喝這家！</h3>
+    <p id="shop"></p>
+    <div>
+      <button class="btn" id="okBtn">好耶！</button>
+      <button class="btn" id="reBtn">再轉一次 💞</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const colors = ["#ffd8e1","#ffeecf","#dff7f2","#e9e0ff"];
+const items = [
+  "50嵐 🥤","麻古茶坊 🥭","一沐日 🌿","萬波 🍹",
+  "特 ‧ 好喝 👑","八曜和茶 🍵","烏弄 🌾","龍角 🐲",
+  "金茶伍 ✨","Mr.Wish 🍉","珍煮丹 🧋","再睡五分鐘 😴",
+  "TEA TOP 🥇","約翰紅茶 🇬🇧","大茗 🌸","晴喜摘 ☀️",
+  "日日裝茶 🗓️","進發家 🏠"
+];
+
+const cvs = document.getElementById("wheel");
+const ctx = cvs.getContext("2d");
+const popup = document.getElementById("popup");
+const shop = document.getElementById("shop");
+const okBtn = document.getElementById("okBtn");
+const reBtn = document.getElementById("reBtn");
+const spinBtn = document.getElementById("spinBtn");
+
+let spinning = false;
+let currentDeg = 0;
+
+/* 讓 Canvas 在不同解析度下都保持正圓 */
+function fitCanvas() {
+  const size = cvs.parentElement.offsetWidth;
+  const dpr = window.devicePixelRatio || 1;
+  cvs.width = size * dpr;
+  cvs.height = size * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawWheel();
+}
+window.addEventListener("resize", fitCanvas);
+fitCanvas();
+
+/* 高品質等機率隨機整數 */
+function randomIndex(n) {
+  if (window.crypto && crypto.getRandomValues) {
+    const arr = new Uint32Array(1);
+    const limit = Math.floor(0xFFFFFFFF / n) * n;
+    do { crypto.getRandomValues(arr); } while (arr[0] >= limit);
+    return arr[0] % n;
+  }
+  return Math.floor(Math.random() * n);
+}
+
+/* 畫轉盤 */
+function drawWheel() {
+  const n = items.length;
+  const r = cvs.width / (2 * (window.devicePixelRatio || 1));
+  const c = r;
+  const angle = 2 * Math.PI / n;
+  ctx.clearRect(0, 0, cvs.width, cvs.height);
+
+  for (let i = 0; i < n; i++) {
+    const start = i * angle - Math.PI / 2;
+    const end = start + angle;
+    ctx.beginPath();
+    ctx.moveTo(c, c);
+    ctx.arc(c, c, r - 8, start, end);
+    ctx.closePath();
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,.9)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.save();
+    ctx.translate(c, c);
+    ctx.rotate(start + angle / 2);
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#5a4a57";
+    ctx.font = '700 16px "PingFang TC"';
+    ctx.fillText(items[i], r * 0.86, 6);
+    ctx.restore();
+  }
+
+  const grd = ctx.createRadialGradient(c, c, 0, c, c, r * 0.3);
+  grd.addColorStop(0, "#fff");
+  grd.addColorStop(1, "#ffe9f3");
+  ctx.beginPath();
+  ctx.arc(c, c, r * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = grd;
+  ctx.fill();
+}
+
+/* 旋轉 */
+function spinWheel() {
+  if (spinning) return;
+  spinning = true;
+  const n = items.length;
+  const slice = 360 / n;
+  const idx = randomIndex(n);
+  const targetDeg = 360 * 5 + (idx * slice) + slice / 2;
+
+  cvs.style.transition = "transform 6s cubic-bezier(.05,.65,.08,1)";
+  cvs.style.transform = `rotate(${-targetDeg}deg)`;
+
+  setTimeout(() => {
+    spinning = false;
+    currentDeg = targetDeg % 360;
+    shop.textContent = items[idx];
+    popup.classList.add("show");
+  }, 6000);
+}
+
+spinBtn.onclick = spinWheel;
+okBtn.onclick = () => { popup.classList.remove("show"); resetWheel(); };
+reBtn.onclick = () => {
+  popup.classList.remove("show");
+  resetWheel();
+  setTimeout(spinWheel, 300);
+};
+
+function resetWheel() {
+  cvs.style.transition = "none";
+  cvs.style.transform = `rotate(${-currentDeg}deg)`;
+  void cvs.offsetWidth;
+  cvs.style.transition = "";
+}
+</script>
+</body>
+</html>
